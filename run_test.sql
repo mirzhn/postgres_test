@@ -1,7 +1,6 @@
 do $$ 
 declare
    action_period_days  integer := 90;
-   action_actual_period_days_rate float := 0.2;
    
    client_id integer;
    start_ts timestamp;
@@ -17,7 +16,7 @@ declare
    start_test_ts timestamp;
    stop_test_ts timestamp;
    minute_from_start_test integer:= 0;
-   description_test text := 'запуск 10';
+   description_test text := 'запуск 1';
    
    total_size_query text;   
 begin 	
@@ -28,8 +27,8 @@ begin
 
 	while (clock_timestamp() <= stop_test_ts) loop		
 		
-		client_id := fn_get_random_client(action_actual_period_days_rate);
-		start_ts := fn_get_random_date(action_period_days, action_actual_period_days_rate);
+		client_id := fn_get_random_client();
+		start_ts := fn_get_random_date(action_period_days);
 		end_ts := start_ts + interval '1 day' * random() * floor(extract(epoch from now() - start_ts)/86400); 
 
 		start_query := clock_timestamp();	
