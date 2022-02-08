@@ -23,6 +23,10 @@ create table action
 	,primary key (client_id, create_timestamp, action_id)
 );
 
+--custom index for 90 day (history deep) * 0.2% and 0.2% client (need support)
+create index IX_ActualDateForTopClient on action (client_id, create_timestamp)
+where create_timestamp >= '2022-01-21' and client_id < 20000
+
 create table testlog
 (	
 	 longest_request_client_id integer not null
@@ -89,51 +93,70 @@ end;
 $$ language plpgsql;
 
 
-create or replace function fn_get_random_client(big_client_rate float) returns integer as
+create or replace function fn_get_random_client() returns integer as
 $$
 declare
-   client_id integer := 0;
-   client_order integer := 0;
+   client_id integer := 1;
    client_target_count integer := 0;
+   random float := 0;
+   start_distribution float := 0;
+   end_distribution float := 0;
 begin	  
+	random := random();
 	client_target_count := (select count(*) from clients);	
-	client_order := 
-		floor(case 
-			when random() > big_client_rate then (random() * (client_target_count * big_client_rate - 1) + 1)  
-			else (random() * (client_target_count - (client_target_count * big_client_rate)) + (client_target_count * big_client_rate))  
-		end);		
-	client_id :=
-	(
-		select 
-			 sq.client_id
-		from 
-		(
-			select 
-				c.client_id
-				,row_number() over(order by action_count desc) as rn
-			from clients as c 
-		) as sq
-		where sq.rn = client_order
-	);
+	end_distribution := fn_get_distribution(client_target_count, 1, client_id);
+	
+	while random not between start_distribution and end_distribution loop
+    	start_distribution := end_distribution;
+		client_id := client_id + 1;
+		end_distribution := end_distribution + fn_get_distribution(client_target_count, 1, client_id);
+	end loop;
+
     return client_id;	
 end;
 $$ language plpgsql;
 
-create or replace function fn_get_random_date(period_days integer, actual_period_days_rate float) returns timestamp as
+create or replace function fn_get_random_date(period_days integer) returns timestamp as
 $$
 declare
    random_date timestamp;
-begin	  
+   random float := 0;
+   iterator_day integer := 1;
+   start_distribution float := 0;
+   end_distribution float := 0;
+begin	
+	random := random();
+	end_distribution := fn_get_distribution(period_days, 1, iterator_day);
+	
+	while random not between start_distribution and end_distribution loop
+    	start_distribution := end_distribution;
+		iterator_day := iterator_day + 1;
+		end_distribution := end_distribution + fn_get_distribution(period_days, 1, iterator_day);
+	end loop;
+
 	random_date := 
 		now() 
 			- interval '1 day' * 
-		floor(case 
-			when random() <= actual_period_days_rate
-			then random() * (period_days - floor(actual_period_days_rate * period_days)) + floor(actual_period_days_rate * period_days) 
-			else random() * floor(actual_period_days_rate * period_days) 
-		 end)
+		iterator_day
 		 	- interval '1 day' * (random());
 					 
     return random_date;
+end;
+$$ language plpgsql;
+
+create or replace function fn_get_distribution(scale integer, coeff integer, x integer) returns float as
+$$
+declare
+  distribution float := 0;
+  i integer; 
+  shape float := 1;
+begin
+  for i in 1..scale loop
+	distribution := distribution + 1/(power(i, shape)) ;
+  end loop;
+  
+  distribution := 1/power(x, shape) * coeff /distribution;
+	
+  return distribution;
 end;
 $$ language plpgsql;
